@@ -1,0 +1,20 @@
+{
+  "name": "tts-mcp-server",
+  "version": "0.1.0",
+  "description": "MiniMax T2A MCP server for Codex：把文本合成 mp3 并保存到本地",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "tts-mcp-server": "src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "ws": "^8.18.0"
+  }
+}

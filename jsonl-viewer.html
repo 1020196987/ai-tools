@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JSONL 可视化查看器</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif; background: #f5f5f7; padding: 20px; color: #1d1d1f; line-height: 1.5; }
+  .container { max-width: 1400px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+  .subtitle { font-size: 13px; color: #6e6e73; margin-bottom: 16px; }
+
+  .input-area { background: white; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+  .drop-zone { position: relative; }
+  .drop-zone.dragging { outline: 2px dashed #007aff; outline-offset: -8px; background: #f0f8ff; border-radius: 8px; }
+  textarea { width: 100%; min-height: 160px; font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 12px; border: 1px solid #d2d2d7; border-radius: 8px; padding: 12px; resize: vertical; outline: none; }
+  textarea:focus { border-color: #007aff; box-shadow: 0 0 0 3px rgba(0,122,255,0.1); }
+
+  .toolbar { margin-top: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  button { background: #007aff; color: white; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; transition: background 0.15s; font-family: inherit; }
+  button:hover { background: #0066d6; }
+  button.secondary { background: #e8e8ed; color: #1d1d1f; }
+  button.secondary:hover { background: #dcdce0; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .search-box { flex: 1; min-width: 200px; position: relative; }
+  .search-box input { width: 100%; padding: 8px 12px 8px 32px; border: 1px solid #d2d2d7; border-radius: 8px; font-size: 13px; outline: none; font-family: inherit; }
+  .search-box input:focus { border-color: #007aff; box-shadow: 0 0 0 3px rgba(0,122,255,0.1); }
+  .search-box::before { content: '⌕'; position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #a1a1a6; font-size: 14px; }
+
+  .view-toggle { display: flex; background: #e8e8ed; border-radius: 8px; padding: 2px; }
+  .view-toggle button { background: transparent; color: #6e6e73; padding: 5px 14px; font-size: 12px; border-radius: 6px; }
+  .view-toggle button.active { background: white; color: #1d1d1f; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+  .view-toggle button:hover { background: rgba(0,0,0,0.05); }
+  .view-toggle button.active:hover { background: white; }
+
+  .file-input { display: none; }
+  .divider { width: 1px; height: 24px; background: #e5e5ea; margin: 0 4px; }
+
+  .stats { display: none; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  .stats.active { display: flex; }
+  .stat { background: white; padding: 12px 16px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); flex: 1; min-width: 110px; }
+  .stat-value { font-size: 22px; font-weight: 600; color: #007aff; line-height: 1.2; }
+  .stat-value.error { color: #ff3b30; }
+  .stat-value.muted { color: #a1a1a6; }
+  .stat-label { font-size: 11px; color: #6e6e73; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  .main { display: grid; grid-template-columns: 260px 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 900px) { .main { grid-template-columns: 1fr; } }
+
+  .sidebar { background: white; border-radius: 12px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; }
+  .sidebar h2 { font-size: 11px; font-weight: 600; color: #6e6e73; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+  .sidebar h2 .reset-link { font-size: 11px; color: #007aff; cursor: pointer; text-transform: none; letter-spacing: 0; font-weight: 500; }
+  .sidebar h2 .reset-link:hover { text-decoration: underline; }
+  .field-list { font-size: 12px; }
+  .field-item { display: flex; align-items: center; padding: 6px 8px; border-radius: 6px; cursor: pointer; gap: 8px; margin-bottom: 2px; }
+  .field-item:hover { background: #f5f5f7; }
+  .field-item.active { background: #e3f2fd; }
+  .field-name { font-family: 'SF Mono', Menlo, monospace; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+  .field-type { font-size: 10px; padding: 2px 6px; border-radius: 4px; flex-shrink: 0; font-weight: 500; }
+  .field-count { color: #6e6e73; font-size: 11px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+
+  .type-string { background: #e3f2fd; color: #0277bd; }
+  .type-number { background: #fff3e0; color: #ef6c00; }
+  .type-boolean { background: #f3e5f5; color: #7b1fa2; }
+  .type-null { background: #eceff1; color: #455a64; }
+  .type-object { background: #e8f5e9; color: #2e7d32; }
+  .type-array { background: #fce4ec; color: #c2185b; }
+
+  .empty-sidebar { color: #a1a1a6; font-size: 12px; padding: 8px 0; }
+
+  .records { min-height: 100px; }
+  .record { background: white; border-radius: 12px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); overflow: hidden; transition: box-shadow 0.15s; }
+  .record:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+  .record.error { border-left: 3px solid #ff3b30; }
+  .record.highlighted { box-shadow: 0 0 0 2px #007aff, 0 2px 8px rgba(0,0,0,0.08); }
+
+  .record-header { padding: 12px 16px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; user-select: none; transition: background 0.1s; gap: 12px; }
+  .record-header:hover { background: #f9f9fb; }
+  .record-left { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; }
+  .record-index { color: #6e6e73; font-size: 11px; font-family: 'SF Mono', Menlo, monospace; flex-shrink: 0; min-width: 36px; }
+  .record-preview { font-size: 12px; font-family: 'SF Mono', Menlo, monospace; color: #424245; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+  .record-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .arrow { color: #6e6e73; transition: transform 0.15s; font-size: 10px; width: 12px; display: inline-block; text-align: center; }
+  .record.expanded .arrow { transform: rotate(90deg); }
+  .preview-empty { color: #a1a1a6; font-style: italic; }
+  .preview-tag { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px; margin-right: 4px; vertical-align: middle; }
+
+  .record-content { display: none; padding: 12px 16px 16px; border-top: 1px solid #f5f5f7; background: #fafafa; }
+  .record.expanded .record-content { display: block; }
+
+  .json-tree { font-family: 'SF Mono', Menlo, monospace; font-size: 12px; line-height: 1.7; overflow-x: auto; }
+  .json-row { display: flex; align-items: flex-start; gap: 4px; }
+  .json-toggle { display: inline-block; width: 14px; cursor: pointer; color: #a1a1a6; user-select: none; text-align: center; flex-shrink: 0; margin-top: 1px; font-size: 9px; transition: color 0.1s; }
+  .json-toggle:hover { color: #007aff; }
+  .json-toggle-spacer { display: inline-block; width: 14px; flex-shrink: 0; }
+  .json-key { color: #1d1d1f; }
+  .json-colon { color: #6e6e73; margin-right: 6px; }
+  .json-string { color: #2e7d32; word-break: break-all; }
+  .json-number { color: #ef6c00; }
+  .json-boolean { color: #7b1fa2; }
+  .json-null { color: #a1a1a6; font-style: italic; }
+  .json-bracket { color: #6e6e73; font-weight: 600; }
+  .json-comma { color: #6e6e73; margin-left: 0; }
+  .json-meta { color: #a1a1a6; font-size: 11px; font-style: italic; margin-left: 6px; }
+  .json-children { padding-left: 18px; border-left: 1px dotted #e5e5ea; margin-left: 6px; }
+  .json-children.collapsed { display: none; }
+  .json-children-inline { padding-left: 4px; }
+  .json-row.highlighted > .json-key { background: #fff3cd; padding: 0 2px; border-radius: 2px; }
+
+  .table-wrap { background: white; border-radius: 12px; padding: 0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #f5f5f7; font-family: 'SF Mono', Menlo, monospace; vertical-align: top; }
+  th { background: #f9f9fb; font-weight: 600; color: #6e6e73; font-size: 11px; text-transform: uppercase; position: sticky; top: 0; z-index: 1; }
+  tr:hover td { background: #f9f9fb; }
+  td.truncated { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+  td.missing { color: #c7c7cc; font-style: italic; }
+  td.error-cell { color: #ff3b30; }
+  td.copy-flash { background: #d4f4dd !important; transition: background 0.3s; }
+  th .col-type { display: block; font-size: 9px; color: #a1a1a6; text-transform: none; font-weight: 400; margin-top: 2px; letter-spacing: 0; }
+  .table-info { padding: 12px 16px; background: #f9f9fb; border-bottom: 1px solid #e5e5ea; font-size: 12px; color: #6e6e73; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+  .table-info button { padding: 4px 10px; font-size: 12px; }
+
+  .empty { text-align: center; padding: 60px 20px; color: #a1a1a6; font-size: 14px; background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+  .empty .hint { font-size: 12px; margin-top: 8px; }
+
+  .error-msg { background: #fff5f5; border: 1px solid #ffccc4; border-radius: 6px; padding: 10px 12px; color: #c2185b; font-size: 12px; font-family: 'SF Mono', Menlo, monospace; white-space: pre-wrap; word-break: break-all; }
+  .copy-btn { background: #e8e8ed; color: #1d1d1f; padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; border: none; transition: background 0.15s; font-family: inherit; }
+  .copy-btn:hover { background: #dcdce0; }
+  .copy-btn.copied { background: #34c759; color: white; }
+
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.85); color: white; padding: 10px 20px; border-radius: 10px; font-size: 13px; opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 1000; }
+  .toast.show { opacity: 1; }
+
+  kbd { display: inline-block; padding: 1px 6px; font-family: 'SF Mono', Menlo, monospace; font-size: 11px; background: #f5f5f7; border: 1px solid #d2d2d7; border-radius: 4px; color: #6e6e73; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>JSONL 可视化查看器</h1>
+  <p class="subtitle">每行一个 JSON 对象 · 支持表格视图、字段筛选、树形展开 · 快捷键 <kbd>⌘/Ctrl</kbd> + <kbd>Enter</kbd> 解析</p>
+
+  <div class="input-area">
+    <div class="drop-zone" id="dropZone">
+      <textarea id="input" placeholder="把 JSONL 内容粘贴到这里…每行一个 JSON 对象&#10;&#10;示例：&#10;{&quot;id&quot;:1,&quot;name&quot;:&quot;Alice&quot;,&quot;role&quot;:&quot;admin&quot;}&#10;{&quot;id&quot;:2,&quot;name&quot;:&quot;Bob&quot;,&quot;role&quot;:&quot;user&quot;}&#10;{&quot;id&quot;:3,&quot;name&quot;:&quot;Carol&quot;,&quot;role&quot;:&quot;user&quot;}"></textarea>
+    </div>
+    <div class="toolbar">
+      <button onclick="parse()">解析</button>
+      <button class="secondary" onclick="loadSample()">加载示例</button>
+      <button class="secondary" onclick="document.getElementById('fileInput').click()">上传文件</button>
+      <input type="file" id="fileInput" class="file-input" accept=".jsonl,.json,.txt,.ndjson" onchange="loadFile(event)">
+      <span class="divider"></span>
+      <div class="search-box">
+        <input type="text" id="search" placeholder="搜索（关键字或字段:值，例如 name:Alice）" oninput="applyFilter()">
+      </div>
+      <span class="divider"></span>
+      <div class="view-toggle">
+        <button id="btn-records" class="active" onclick="switchView('records')">记录</button>
+        <button id="btn-table" onclick="switchView('table')">表格</button>
+      </div>
+      <span class="divider"></span>
+      <button class="secondary" onclick="expandAll()">全部展开</button>
+      <button class="secondary" onclick="collapseAll()">全部折叠</button>
+      <button class="secondary" onclick="exportData()">导出</button>
+      <button class="secondary" onclick="clearAll()">清空</button>
+    </div>
+  </div>
+
+  <div id="stats" class="stats"></div>
+
+  <div class="main">
+    <aside class="sidebar" id="sidebar">
+      <h2>
+        <span>字段</span>
+        <span class="reset-link" id="clearFieldFilter" onclick="clearFieldFilter()" style="display:none">清除筛选</span>
+      </h2>
+      <div id="fieldList" class="field-list"></div>
+    </aside>
+    <main id="output"><div class="empty">粘贴 JSONL 文本后点击「解析」开始<div class="hint">或拖拽 .jsonl 文件到上方输入框</div></div></main>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const state = {
+  records: [],
+  filtered: [],
+  view: 'records',
+  query: '',
+  fieldFilter: null,
+  expanded: new Set(),
+  nextId: 0,
+};
+
+const TYPE_COLORS = {
+  string: 'type-string',
+  number: 'type-number',
+  boolean: 'type-boolean',
+  null: 'type-null',
+  object: 'type-object',
+  array: 'type-array',
+};
+
+function uniqId() {
+  return `n${state.nextId++}`;
+}
+
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+function escapeAttr(s) {
+  return escapeHtml(s);
+}
+
+function getJSONType(value) {
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return 'array';
+  return typeof value;
+}
+
+function getValueAtPath(obj, path) {
+  if (!path) return undefined;
+  const parts = path.split('.');
+  let cur = obj;
+  for (const p of parts) {
+    if (cur === null || cur === undefined) return undefined;
+    cur = cur[p];
+  }
+  return cur;
+}
+
+function parseSearchQuery(q) {
+  // 支持 "field:value" 形式
+  const colonIdx = q.indexOf(':');
+  if (colonIdx > 0 && colonIdx < q.length - 1) {
+    const field = q.slice(0, colonIdx).trim();
+    const value = q.slice(colonIdx + 1).trim();
+    if (/^[a-zA-Z_$][\w$.]*$/.test(field)) {
+      return { field, value: value.toLowerCase() };
+    }
+  }
+  return { field: null, value: q.toLowerCase() };
+}
+
+function parse() {
+  const input = document.getElementById('input').value;
+  if (!input.trim()) {
+    showToast('请先粘贴 JSONL 内容');
+    return;
+  }
+
+  const lines = input.split(/\r?\n/);
+  const records = [];
+  let lineNo = 0;
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    lineNo++;
+    try {
+      const data = JSON.parse(line);
+      records.push({ index: lineNo, data, error: null, raw: line });
+    } catch (e) {
+      records.push({ index: lineNo, data: null, error: e.message, raw: line });
+    }
+  }
+
+  state.records = records;
+  state.expanded = new Set();
+  state.fieldFilter = null;
+  applyFilter();
+  renderStats();
+  renderFieldList();
+  if (records.length === 0) {
+    document.getElementById('output').innerHTML = '<div class="empty">没有有效的 JSON 行</div>';
+  }
+}
+
+function applyFilter() {
+  const rawQuery = document.getElementById('search').value.trim();
+  state.query = rawQuery;
+  const { field, value } = parseSearchQuery(rawQuery);
+
+  state.filtered = state.records.filter(r => {
+    if (r.error) return !field && !value ? true : (field === null && r.raw.toLowerCase().includes(value));
+    if (state.fieldFilter) {
+      const v = getValueAtPath(r.data, state.fieldFilter);
+      if (v === undefined) return false;
+      if (value && !JSON.stringify(v).toLowerCase().includes(value)) return false;
+      return true;
+    }
+    if (field) {
+      const v = getValueAtPath(r.data, field);
+      if (v === undefined) return false;
+      return JSON.stringify(v).toLowerCase().includes(value);
+    }
+    if (value) {
+      return JSON.stringify(r.data).toLowerCase().includes(value);
+    }
+    return true;
+  });
+
+  renderOutput();
+}
+
+function renderStats() {
+  const total = state.records.length;
+  const errors = state.records.filter(r => r.error).length;
+  const valid = total - errors;
+
+  const fields = new Set();
+  state.records.forEach(r => {
+    if (r.error || !r.data || typeof r.data !== 'object' || Array.isArray(r.data)) return;
+    Object.keys(r.data).forEach(k => fields.add(k));
+  });
+
+  const el = document.getElementById('stats');
+  el.classList.add('active');
+  el.innerHTML = `
+    <div class="stat"><div class="stat-value">${total}</div><div class="stat-label">总行数</div></div>
+    <div class="stat"><div class="stat-value">${valid}</div><div class="stat-label">有效记录</div></div>
+    ${errors > 0 ? `<div class="stat"><div class="stat-value error">${errors}</div><div class="stat-label">解析错误</div></div>` : ''}
+    <div class="stat"><div class="stat-value">${fields.size}</div><div class="stat-label">字段数</div></div>
+  `;
+}
+
+function renderFieldList() {
+  const fieldStats = {};
+  state.records.forEach(r => {
+    if (r.error || !r.data || typeof r.data !== 'object' || Array.isArray(r.data)) return;
+    Object.entries(r.data).forEach(([key, val]) => {
+      if (!fieldStats[key]) fieldStats[key] = { count: 0, types: new Map() };
+      fieldStats[key].count++;
+      const t = getJSONType(val);
+      fieldStats[key].types.set(t, (fieldStats[key].types.get(t) || 0) + 1);
+    });
+  });
+
+  const sorted = Object.entries(fieldStats).sort((a, b) => b[1].count - a[1].count);
+
+  const html = sorted.map(([name, stat]) => {
+    const dominantType = Array.from(stat.types.entries()).sort((a, b) => b[1] - a[1])[0][0];
+    const isActive = state.fieldFilter === name;
+    const safeName = escapeAttr(name);
+    return `
+      <div class="field-item ${isActive ? 'active' : ''}" data-field="${safeName}" onclick="selectField(this)">
+        <span class="field-name" title="${escapeAttr(name)}">${escapeHtml(name)}</span>
+        <span class="field-type ${TYPE_COLORS[dominantType]}">${dominantType}</span>
+        <span class="field-count">${stat.count}</span>
+      </div>
+    `;
+  }).join('');
+
+  document.getElementById('fieldList').innerHTML = html || '<div class="empty-sidebar">暂无字段</div>';
+  document.getElementById('clearFieldFilter').style.display = state.fieldFilter ? 'inline' : 'none';
+}
+
+function selectField(el) {
+  const name = el.getAttribute('data-field');
+  state.fieldFilter = state.fieldFilter === name ? null : name;
+  renderFieldList();
+  applyFilter();
+}
+
+function clearFieldFilter() {
+  state.fieldFilter = null;
+  renderFieldList();
+  applyFilter();
+}
+
+function renderOutput() {
+  const out = document.getElementById('output');
+  if (state.filtered.length === 0) {
+    out.innerHTML = '<div class="empty">没有匹配的记录</div>';
+    return;
+  }
+  if (state.view === 'records') renderRecordsView(out);
+  else renderTableView(out);
+}
+
+function generatePreview(data) {
+  if (data === null) return '<span class="preview-empty">null</span>';
+  if (typeof data !== 'object') {
+    const type = getJSONType(data);
+    return `<span class="${TYPE_COLORS[type]}">${escapeHtml(String(data))}</span>`;
+  }
+  if (Array.isArray(data)) {
+    if (data.length === 0) return '<span class="preview-empty">[空数组]</span>';
+    return `<span class="preview-tag ${TYPE_COLORS.array}">array</span> ${escapeHtml(`[${data.length} 项]`)}`;
+  }
+  const keys = Object.keys(data);
+  if (keys.length === 0) return '<span class="preview-empty">{空对象}</span>';
+  const parts = keys.slice(0, 4).map(k => {
+    const v = data[k];
+    const type = getJSONType(v);
+    let display;
+    if (v === null) display = 'null';
+    else if (typeof v === 'object') display = Array.isArray(v) ? `[${v.length}]` : '{…}';
+    else if (typeof v === 'string') display = v.length > 24 ? `"${v.slice(0, 24)}…"` : `"${v}"`;
+    else display = String(v);
+    return `<span class="json-key">${escapeHtml(k)}</span>: <span class="${TYPE_COLORS[type]}">${escapeHtml(display)}</span>`;
+  });
+  if (keys.length > 4) parts.push('<span class="preview-empty">+' + (keys.length - 4) + '</span>');
+  return parts.join(' · ');
+}
+
+function renderRecordsView(out) {
+  const html = state.filtered.map((r, i) => {
+    const recId = `rec-${r.index}-${uniqId()}`;
+    const isExpanded = state.expanded.has(recId);
+    if (r.error) {
+      return `
+        <div class="record error ${isExpanded ? 'expanded' : ''}" data-rec-id="${recId}">
+          <div class="record-header" onclick="toggleRecord(this)">
+            <div class="record-left">
+              <span class="record-index">#${r.index}</span>
+              <span class="record-preview" style="color:#ff3b30">解析错误：${escapeHtml(r.error)}</span>
+            </div>
+            <div class="record-right">
+              <button class="copy-btn" onclick="event.stopPropagation(); copyText('${escapeAttr(r.raw)}', this)">复制原文</button>
+              <span class="arrow">▶</span>
+            </div>
+          </div>
+          <div class="record-content">
+            <div class="error-msg">${escapeHtml(r.raw)}</div>
+          </div>
+        </div>
+      `;
+    }
+    return `
+      <div class="record ${isExpanded ? 'expanded' : ''}" data-rec-id="${recId}">
+        <div class="record-header" onclick="toggleRecord(this)">
+          <div class="record-left">
+            <span class="record-index">#${r.index}</span>
+            <span class="record-preview">${generatePreview(r.data)}</span>
+          </div>
+          <div class="record-right">
+            <button class="copy-btn" onclick="event.stopPropagation(); copyRecord(${r.index}, this)">复制</button>
+            <span class="arrow">▶</span>
+          </div>
+        </div>
+        <div class="record-content">
+          ${renderJSONTree(r.data)}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  out.innerHTML = `<div class="records">${html}</div>`;
+}
+
+function toggleRecord(headerEl) {
+  const record = headerEl.parentElement;
+  const recId = record.getAttribute('data-rec-id');
+  if (state.expanded.has(recId)) state.expanded.delete(recId);
+  else state.expanded.add(recId);
+  record.classList.toggle('expanded');
+}
+
+function expandAll() {
+  state.filtered.forEach(r => {
+    const recId = `rec-${r.index}-`;
+    // mark all matching IDs as expanded
+    document.querySelectorAll(`[data-rec-id^="rec-${r.index}-"]`).forEach(el => {
+      state.expanded.add(el.getAttribute('data-rec-id'));
+      el.classList.add('expanded');
+    });
+  });
+}
+
+function collapseAll() {
+  state.expanded.clear();
+  document.querySelectorAll('.record.expanded').forEach(el => el.classList.remove('expanded'));
+}
+
+function renderJSONTree(value, keyName, depth) {
+  const type = getJSONType(value);
+  if (type === 'object' && value !== null) {
+    const keys = Object.keys(value);
+    if (keys.length === 0) {
+      return `<div class="json-row">${keyName !== undefined ? renderKey(keyName) : ''}<span class="json-bracket">{ }</span></div>`;
+    }
+    const id = `tree-${uniqId()}`;
+    const html = keys.map((k, i) => {
+      const child = renderJSONTree(value[k], k, depth + 1);
+      return child + (i < keys.length - 1 ? '<span class="json-comma">,</span>' : '');
+    }).join('');
+    return `
+        <div class="json-row" data-tree="${id}">
+          <span class="json-toggle" onclick="toggleTree('${id}')">▼</span>
+          ${keyName !== undefined ? renderKey(keyName) : ''}<span class="json-bracket">{</span><span class="json-meta">${keys.length} 个字段</span>
+        </div>
+        <div class="json-children" id="${id}">${html}</div>
+        <div class="json-row"><span class="json-toggle-spacer"></span><span class="json-bracket">}</span></div>
+      `;
+  }
+  if (type === 'array') {
+    if (value.length === 0) {
+      return `<div class="json-row">${keyName !== undefined ? renderKey(keyName) : ''}<span class="json-bracket">[ ]</span></div>`;
+    }
+    const id = `tree-${uniqId()}`;
+    const html = value.map((item, i) => {
+      const child = renderJSONTree(item, undefined, depth + 1);
+      return child + (i < value.length - 1 ? '<span class="json-comma">,</span>' : '');
+    }).join('');
+    return `
+        <div class="json-row" data-tree="${id}">
+          <span class="json-toggle" onclick="toggleTree('${id}')">▼</span>
+          ${keyName !== undefined ? renderKey(keyName) : ''}<span class="json-bracket">[</span><span class="json-meta">${value.length} 项</span>
+        </div>
+        <div class="json-children" id="${id}">${html}</div>
+        <div class="json-row"><span class="json-toggle-spacer"></span><span class="json-bracket">]</span></div>
+      `;
+  }
+  return `<div class="json-row">${keyName !== undefined ? renderKey(keyName) : ''}${renderPrimitive(value, type)}</div>`;
+}
+
+function renderKey(name) {
+  return `<span class="json-key">${escapeHtml(name)}</span><span class="json-colon">:</span>`;
+}
+
+function renderPrimitive(value, type) {
+  if (type === 'string') return `<span class="json-string">"${escapeHtml(value)}"</span>`;
+  if (type === 'null') return `<span class="json-null">null</span>`;
+  if (type === 'number') return `<span class="json-number">${value}</span>`;
+  if (type === 'boolean') return `<span class="json-boolean">${value}</span>`;
+  return `<span>${escapeHtml(String(value))}</span>`;
+}
+
+function toggleTree(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.toggle('collapsed');
+  const toggleEl = el.previousElementSibling.querySelector('.json-toggle');
+  if (toggleEl) toggleEl.textContent = el.classList.contains('collapsed') ? '▶' : '▼';
+}
+
+function renderTableView(out) {
+  if (state.filtered.length === 0) {
+    out.innerHTML = '<div class="empty">没有匹配的记录</div>';
+    return;
+  }
+
+  const columns = new Set();
+  state.filtered.forEach(r => {
+    if (r.data && typeof r.data === 'object' && !Array.isArray(r.data)) {
+      Object.keys(r.data).forEach(k => columns.add(k));
+    }
+  });
+
+  const cols = ['#', ...Array.from(columns)];
+
+  const head = cols.map((c, i) => {
+    if (i === 0) return `<th>#</th>`;
+    // detect dominant type
+    const typeCounts = {};
+    state.filtered.forEach(r => {
+      if (r.error || !r.data) return;
+      const v = r.data[c];
+      if (v !== undefined) {
+        const t = getJSONType(v);
+        typeCounts[t] = (typeCounts[t] || 0) + 1;
+      }
+    });
+    const dominant = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0];
+    const typeLabel = dominant ? dominant[0] : '';
+    return `<th>${escapeHtml(c)}<span class="col-type">${typeLabel}</span></th>`;
+  }).join('');
+
+  const rows = state.filtered.map(r => {
+    if (r.error) {
+      return `<tr><td>${r.index}</td><td colspan="${cols.length - 1}" class="error-cell">解析错误：${escapeHtml(r.error)}</td></tr>`;
+    }
+    const cells = cols.slice(1).map(col => {
+      const val = r.data[col];
+      if (val === undefined) return `<td class="missing">—</td>`;
+      const type = getJSONType(val);
+      const display = typeof val === 'object' && val !== null ? JSON.stringify(val) : String(val);
+      const truncated = display.length > 60;
+      return `<td class="truncated" data-full="${escapeAttr(display)}" data-type="${type}" title="${escapeAttr(display)}" onclick="copyTableCell(this)">${escapeHtml(truncated ? display.slice(0, 60) + '…' : display)}</td>`;
+    }).join('');
+    return `<tr><td>${r.index}</td>${cells}</tr>`;
+  }).join('');
+
+  const info = `
+    <div class="table-info">
+      <span>共 ${state.filtered.length} 条记录 · ${columns.size} 列</span>
+      <button class="secondary" onclick="exportTableCSV()">导出 CSV</button>
+    </div>
+  `;
+
+  out.innerHTML = `
+    <div class="table-wrap">
+      ${info}
+      <table>
+        <thead><tr>${head}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function copyTableCell(td) {
+  const text = td.getAttribute('data-full') || td.textContent;
+  copyText(text, td);
+}
+
+function copyRecord(index, btn) {
+  const r = state.records.find(x => x.index === index);
+  if (!r) return;
+  copyText(r.raw, btn);
+}
+
+function copyText(text, btn) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => flashCopy(btn));
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); flashCopy(btn); } catch (e) {}
+    document.body.removeChild(ta);
+  }
+}
+
+function flashCopy(btn) {
+  if (btn) {
+    if (btn.classList.contains('copy-btn')) {
+      const original = btn.textContent;
+      btn.textContent = '已复制';
+      btn.classList.add('copied');
+      setTimeout(() => {
+        btn.textContent = original;
+        btn.classList.remove('copied');
+      }, 1200);
+    } else {
+      btn.classList.add('copy-flash');
+      setTimeout(() => btn.classList.remove('copy-flash'), 400);
+    }
+  } else {
+    showToast('已复制到剪贴板');
+  }
+}
+
+function showToast(message) {
+  const toast = document.getElementById('toast');
+  toast.textContent = message;
+  toast.classList.add('show');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => toast.classList.remove('show'), 1800);
+}
+
+function switchView(view) {
+  state.view = view;
+  document.getElementById('btn-records').classList.toggle('active', view === 'records');
+  document.getElementById('btn-table').classList.toggle('active', view === 'table');
+  renderOutput();
+}
+
+function loadFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    document.getElementById('input').value = e.target.result;
+    parse();
+    showToast(`已加载 ${file.name}`);
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+function clearAll() {
+  document.getElementById('input').value = '';
+  document.getElementById('search').value = '';
+  state.records = [];
+  state.filtered = [];
+  state.expanded = new Set();
+  state.fieldFilter = null;
+  document.getElementById('stats').classList.remove('active');
+  document.getElementById('output').innerHTML = '<div class="empty">粘贴 JSONL 文本后点击「解析」开始<div class="hint">或拖拽 .jsonl 文件到上方输入框</div></div>';
+  document.getElementById('fieldList').innerHTML = '<div class="empty-sidebar">暂无字段</div>';
+  document.getElementById('clearFieldFilter').style.display = 'none';
+}
+
+function exportData() {
+  if (state.records.length === 0) {
+    showToast('没有可导出的数据');
+    return;
+  }
+  const valid = state.records.filter(r => !r.error);
+  const content = valid.map(r => JSON.stringify(r.data)).join('\n');
+  downloadFile(content, 'data.jsonl', 'application/x-ndjson');
+  showToast(`已导出 ${valid.length} 条记录为 JSONL`);
+}
+
+function exportTableCSV() {
+  if (state.filtered.length === 0) {
+    showToast('没有可导出的数据');
+    return;
+  }
+  const columns = new Set();
+  state.filtered.forEach(r => {
+    if (r.data && typeof r.data === 'object' && !Array.isArray(r.data)) {
+      Object.keys(r.data).forEach(k => columns.add(k));
+    }
+  });
+  const cols = ['index', ...Array.from(columns)];
+  const escapeCSV = (v) => {
+    if (v === null || v === undefined) return '';
+    const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+    if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+  const content = cols.join(',') + '\n' + state.filtered.map(r => {
+    if (r.error) return `${r.index},"解析错误：${r.error.replace(/"/g, '""')}"`;
+    return [r.index, ...cols.slice(1).map(c => escapeCSV(r.data[c]))].join(',');
+  }).join('\n');
+  downloadFile(content, 'data.csv', 'text/csv');
+  showToast(`已导出 CSV`);
+}
+
+function downloadFile(content, filename, mime) {
+  const blob = new Blob([content], { type: mime + ';charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function loadSample() {
+  const sample = [
+    { id: 1001, name: 'Alice Chen', role: 'admin', active: true, joined: '2024-01-15', salary: 85000, profile: { age: 28, city: 'Shanghai', skills: ['React', 'Node.js'] }, tags: ['urgent'] },
+    { id: 1002, name: 'Bob Wang', role: 'user', active: true, joined: '2024-02-20', salary: 62000, profile: { age: 35, city: 'Beijing', skills: ['Python', 'Django'] }, tags: [] },
+    { id: 1003, name: 'Carol Liu', role: 'user', active: false, joined: '2024-03-10', salary: null, profile: { age: 42, city: 'Guangzhou', skills: [] }, tags: ['archived'] },
+    { id: 1004, name: 'David Zhang', role: 'moderator', active: true, joined: '2024-01-05', salary: 72000, profile: { age: 31, city: 'Shenzhen', skills: ['Go', 'Kubernetes'] }, tags: ['urgent', 'favorites'] },
+    { id: 1005, name: 'Eve Sun', role: 'admin', active: true, joined: '2024-04-12', salary: 95000, profile: { age: 29, city: 'Hangzhou', skills: ['Vue', 'TypeScript'] }, tags: [] },
+    { id: 1006, name: 'Frank Wu', role: 'user', active: true, joined: '2024-05-01', salary: 58000, profile: { age: 26, city: 'Shanghai', skills: ['Java', 'Spring'] }, tags: ['urgent'] }
+  ].map(r => JSON.stringify(r)).join('\n');
+
+  document.getElementById('input').value = sample;
+  parse();
+  showToast('已加载示例数据');
+}
+
+// Drag and drop
+const dropZone = document.getElementById('dropZone');
+['dragenter', 'dragover'].forEach(evt => {
+  dropZone.addEventListener(evt, (e) => { e.preventDefault(); dropZone.classList.add('dragging'); });
+});
+['dragleave', 'drop'].forEach(evt => {
+  dropZone.addEventListener(evt, (e) => { e.preventDefault(); dropZone.classList.remove('dragging'); });
+});
+dropZone.addEventListener('drop', (e) => {
+  const file = e.dataTransfer.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    document.getElementById('input').value = ev.target.result;
+    parse();
+    showToast(`已加载 ${file.name}`);
+  };
+  reader.readAsText(file);
+});
+
+// Keyboard shortcut
+document.getElementById('input').addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    e.preventDefault();
+    parse();
+  }
+});
+document.getElementById('search').addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    e.target.value = '';
+    applyFilter();
+  }
+});
+
+// Auto-parse sample on first load for immediate demo
+window.addEventListener('DOMContentLoaded', () => {
+  // leave empty so first impression is a clean canvas; user can click "加载示例"
+});
+</script>
+</body>
+</html>

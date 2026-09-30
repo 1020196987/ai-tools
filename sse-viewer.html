@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenClaw SSE 流可视化查看器</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif; background: #f5f5f7; padding: 20px; color: #1d1d1f; line-height: 1.5; }
+  h1 { margin-bottom: 16px; font-size: 20px; font-weight: 600; }
+  .container { max-width: 1200px; margin: 0 auto; }
+  .input-area { background: white; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+  textarea { width: 100%; min-height: 180px; font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 12px; border: 1px solid #d2d2d7; border-radius: 8px; padding: 12px; resize: vertical; outline: none; }
+  textarea:focus { border-color: #007aff; box-shadow: 0 0 0 3px rgba(0,122,255,0.1); }
+  .toolbar { margin-top: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  button { background: #007aff; color: white; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; transition: background 0.15s; }
+  button:hover { background: #0066d6; }
+  button.secondary { background: #e8e8ed; color: #1d1d1f; }
+  button.secondary:hover { background: #dcdce0; }
+  .toolbar label { font-size: 13px; color: #6e6e73; display: flex; align-items: center; gap: 4px; cursor: pointer; }
+  .stats { display: none; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  .stats.active { display: flex; }
+  .stat { background: white; padding: 12px 16px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); flex: 1; min-width: 130px; }
+  .stat-value { font-size: 20px; font-weight: 600; color: #007aff; }
+  .stat-label { font-size: 11px; color: #6e6e73; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .event { background: white; border-radius: 12px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); overflow: hidden; transition: box-shadow 0.15s; }
+  .event:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+  .event-header { padding: 12px 16px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; user-select: none; transition: background 0.1s; }
+  .event-header:hover { background: #f9f9fb; }
+  .event-left { display: flex; align-items: center; gap: 10px; }
+  .event-type { font-weight: 600; font-size: 12px; padding: 3px 10px; border-radius: 6px; font-family: 'SF Mono', Menlo, monospace; }
+  .type-thinking { background: #f0e7ff; color: #6b46c1; }
+  .type-assistant { background: #e3f2fd; color: #0277bd; }
+  .type-message { background: #e8f5e9; color: #2e7d32; }
+  .type-usage { background: #fff3e0; color: #ef6c00; }
+  .type-done { background: #fce4ec; color: #c2185b; }
+  .type-tool { background: #f3e5f5; color: #7b1fa2; }
+  .type-default { background: #eceff1; color: #455a64; }
+  .event-index { color: #6e6e73; font-size: 11px; font-family: 'SF Mono', Menlo, monospace; }
+  .event-meta { font-size: 11px; color: #6e6e73; font-family: 'SF Mono', Menlo, monospace; }
+  .arrow { color: #6e6e73; transition: transform 0.15s; font-size: 10px; }
+  .event.expanded .arrow { transform: rotate(90deg); }
+  .preview { padding: 0 16px 12px; color: #424245; font-size: 12px; font-family: 'SF Mono', Menlo, monospace; max-height: 80px; overflow: hidden; text-overflow: ellipsis; }
+  .preview-empty { color: #a1a1a6; font-style: italic; }
+  .preview-icon { margin-right: 6px; }
+  .event-content { display: none; padding: 0 16px 16px; }
+  .event.expanded .event-content { display: block; }
+  .event.expanded .preview { display: none; }
+  .event-content pre { background: #f5f5f7; padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 11px; line-height: 1.5; font-family: 'SF Mono', Menlo, monospace; white-space: pre-wrap; word-break: break-all; max-height: 600px; overflow-y: auto; }
+  .empty { text-align: center; padding: 60px 20px; color: #a1a1a6; font-size: 14px; }
+  .timeline-bar { position: relative; padding-left: 20px; }
+  .timeline-bar::before { content: ''; position: absolute; left: 7px; top: 0; bottom: 0; width: 2px; background: #e5e5ea; }
+  .timeline-bar .event { position: relative; }
+  .timeline-bar .event::before { content: ''; position: absolute; left: -16px; top: 18px; width: 8px; height: 8px; border-radius: 50%; background: #007aff; border: 2px solid #f5f5f7; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>📡 OpenClaw SSE 流可视化查看器</h1>
+
+  <div class="input-area">
+    <textarea id="input" placeholder="把 OpenClaw 的 SSE 原始事件粘贴到这里…&#10;&#10;示例：&#10;event:agent.thinking&#10;data:{...}&#10;&#10;event:agent.assistant&#10;data:{...}"></textarea>
+    <div class="toolbar">
+      <button onclick="parse()">解析</button>
+      <button class="secondary" onclick="expandAll()">全部展开</button>
+      <button class="secondary" onclick="collapseAll()">全部折叠</button>
+      <button class="secondary" onclick="exportJSON()">导出 JSON</button>
+      <button class="secondary" onclick="clearAll()">清空</button>
+      <label><input type="checkbox" id="autoExpand"> 自动展开所有</label>
+      <label><input type="checkbox" id="timelineMode" checked> 时间线模式</label>
+    </div>
+  </div>
+
+  <div id="stats" class="stats"></div>
+  <div id="output"><div class="empty">粘贴 SSE 文本后点击「解析」开始</div></div>
+</div>
+
+<script>
+let currentEvents = [];
+
+function parse() {
+  const text = document.getElementById('input').value.trim();
+  if (!text) {
+    document.getElementById('output').innerHTML = '<div class="empty">粘贴 SSE 文本后点击「解析」开始</div>';
+    document.getElementById('stats').classList.remove('active');
+    return;
+  }
+  currentEvents = [];
+
+  // 兼容 \n\n 和 \r\n\r\n
+  const blocks = text.split(/\r?\n\r?\n+/);
+
+  for (const block of blocks) {
+    if (!block.trim()) continue;
+    const lines = block.split(/\r?\n/);
+    let eventType = null;
+    let dataStr = '';
+    let id = null;
+
+    for (const line of lines) {
+      if (line.startsWith('event:')) eventType = line.slice(6).trim();
+      else if (line.startsWith('data:')) dataStr += (dataStr ? '\n' : '') + line.slice(5).trim();
+      else if (line.startsWith('id:')) id = line.slice(3).trim();
+    }
+
+    if (eventType || dataStr) {
+      let data = null;
+      let parseErr = null;
+      try { data = JSON.parse(dataStr); } catch(e) { parseErr = e.message; }
+      currentEvents.push({ type: eventType, id, data, raw: dataStr, parseErr });
+    }
+  }
+
+  render();
+  renderStats();
+}
+
+function render() {
+  const output = document.getElementById('output');
+  const autoExpand = document.getElementById('autoExpand').checked;
+  const timeline = document.getElementById('timelineMode').checked;
+
+  output.className = timeline ? 'timeline-bar' : '';
+  output.innerHTML = '';
+
+  if (!currentEvents.length) {
+    output.innerHTML = '<div class="empty">没有解析到任何事件</div>';
+    return;
+  }
+
+  currentEvents.forEach((ev, idx) => {
+    const div = document.createElement('div');
+    div.className = 'event' + (autoExpand ? ' expanded' : '');
+
+    const typeClass = ev.type ? 'type-' + ev.type.replace(/\./g, '') : 'type-default';
+    const typeLabel = ev.type || '(unknown)';
+    const ts = ev.data?.timestamp ? formatTime(ev.data.timestamp) : '';
+
+    const header = document.createElement('div');
+    header.className = 'event-header';
+    header.innerHTML = `
+      <div class="event-left">
+        <span class="arrow">▶</span>
+        <span class="event-type ${typeClass}">${escape(typeLabel)}</span>
+        <span class="event-index">#${idx + 1}</span>
+      </div>
+      <div class="event-meta">${ts} ${ev.seq !== undefined ? `seq=${ev.data.seq}` : ''} ${ev.parseErr ? '⚠️' : ''}</div>
+    `;
+    header.onclick = () => div.classList.toggle('expanded');
+
+    const preview = document.createElement('div');
+    preview.className = 'preview';
+    const p = makePreview(ev);
+    if (p) preview.innerHTML = p;
+    else preview.innerHTML = '<span class="preview-empty">（无内容预览）</span>';
+
+    const content = document.createElement('div');
+    content.className = 'event-content';
+    const pre = document.createElement('pre');
+    if (ev.parseErr) {
+      pre.textContent = '[JSON 解析失败: ' + ev.parseErr + ']\n\n' + ev.raw;
+    } else {
+      pre.textContent = JSON.stringify(ev.data, null, 2);
+    }
+    content.appendChild(pre);
+
+    div.appendChild(header);
+    div.appendChild(preview);
+    div.appendChild(content);
+    output.appendChild(div);
+  });
+}
+
+function makePreview(ev) {
+  const t = ev.type;
+  if (t === 'agent.thinking' && ev.data?.data?.text) {
+    return '<span class="preview-icon">💭</span>' + escape(truncate(ev.data.data.text, 200));
+  }
+  if (t === 'agent.assistant' && ev.data?.data?.text) {
+    return '<span class="preview-icon">💬</span>' + escape(truncate(ev.data.data.text, 200));
+  }
+  if (t === 'message.delta' && ev.data?.deltaText) {
+    return '<span class="preview-icon">📨</span>' + escape(truncate(ev.data.deltaText, 200));
+  }
+  if (t === 'agent.usage') {
+    const d = ev.data?.data || {};
+    return `<span class="preview-icon">📊</span>tokens=${d.totalTokens}/${d.contextTokens} (${d.usagePercent}%) · runtime=${(ev.data?.payload?.runtimeMs/1000).toFixed(1)}s · model=${ev.data?.payload?.model}`;
+  }
+  if (t === 'done') {
+    return '<span class="preview-icon">✅</span>' + escape(truncate(ev.data?.fullText || '', 200));
+  }
+  return '';
+}
+
+function renderStats() {
+  const stats = document.getElementById('stats');
+  if (!currentEvents.length) {
+    stats.classList.remove('active');
+    return;
+  }
+  stats.classList.add('active');
+
+  const counts = {};
+  currentEvents.forEach(e => {
+    const t = e.type || 'unknown';
+    counts[t] = (counts[t] || 0) + 1;
+  });
+
+  const usage = currentEvents.find(e => e.type === 'agent.usage');
+  const firstTs = currentEvents[0]?.data?.timestamp;
+  const lastTs = currentEvents[currentEvents.length - 1]?.data?.timestamp;
+  const totalMs = firstTs && lastTs ? lastTs - firstTs : 0;
+
+  const items = [
+    { v: currentEvents.length, l: '总事件数' },
+    { v: Object.keys(counts).length, l: '事件类型' },
+    { v: (totalMs/1000).toFixed(2)+'s', l: '全程耗时' }
+  ];
+  if (usage) {
+    const d = usage.data?.data || {};
+    items.push({ v: d.totalTokens, l: '已用 tokens' });
+    items.push({ v: d.usagePercent+'%', l: '上下文占用' });
+    items.push({ v: usage.data?.payload?.model || '-', l: '模型' });
+  }
+
+  stats.innerHTML = items.map(i => `
+    <div class="stat">
+      <div class="stat-value">${escape(String(i.v))}</div>
+      <div class="stat-label">${escape(i.l)}</div>
+    </div>
+  `).join('');
+}
+
+function expandAll() {
+  document.querySelectorAll('.event').forEach(e => e.classList.add('expanded'));
+}
+function collapseAll() {
+  document.querySelectorAll('.event').forEach(e => e.classList.remove('expanded'));
+}
+function clearAll() {
+  document.getElementById('input').value = '';
+  currentEvents = [];
+  document.getElementById('output').innerHTML = '<div class="empty">已清空</div>';
+  document.getElementById('stats').classList.remove('active');
+}
+function exportJSON() {
+  if (!currentEvents.length) { alert('没有可导出的事件'); return; }
+  const blob = new Blob([JSON.stringify(currentEvents, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `sse-events-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function truncate(s, n) { return s.length > n ? s.slice(0, n) + '…' : s; }
+function formatTime(ts) {
+  const d = new Date(ts);
+  return d.toLocaleTimeString('zh-CN', {hour12: false}) + '.' + String(d.getMilliseconds()).padStart(3, '0');
+}
+function escape(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// 输入实时解析（防抖）
+let _debTimer;
+document.getElementById('input').addEventListener('input', () => {
+  clearTimeout(_debTimer);
+  _debTimer = setTimeout(() => { parse(); }, 400);
+});
+</script>
+</body>
+</html>
