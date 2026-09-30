@@ -1,0 +1,32 @@
+tts-mcp-server/README.md
+  h_a3d852df2c5792 1-131
+jsonl-viewer.html
+  h_a3d852df2c5792 1-793
+tts-mcp-server/package.json
+  h_a3d852df2c5792 1-20
+tts-mcp-server/test-mcp.mjs
+  h_a3d852df2c5792 1-151
+tts-mcp-server/package-lock.json
+  h_a3d852df2c5792 1-1135
+tts-mcp-server/.env.example
+  h_a3d852df2c5792 1-4
+tts-mcp-server/docs/MCP-NOTES.md
+  h_a3d852df2c5792 1-432
+.gitignore
+  h_a3d852df2c5792 1-13
+sse-viewer.html
+  h_a3d852df2c5792 1-272
+tts-mcp-server/src/index.js
+  h_a3d852df2c5792 1-415
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e768689561609ba1b1c3060f6475876f6e864593",
+  "prompts": {},
+  "humans": {
+    "h_a3d852df2c5792": {
+      "author": "pengchengming <pengchengming@jd.com>"
+    }
+  }
+}
